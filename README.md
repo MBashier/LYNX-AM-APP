@@ -17,14 +17,30 @@ keeping the same structure and feeding the same weekly finished-spools report.
 
 The diameter-tolerance logic backs the public `±0.05mm` claim with real hourly evidence.
 
-## Run locally (for testing)
+## Run locally (Windows PC — operators use same WiFi)
+
+gunicorn is Linux-only, so on Windows use **Waitress** (pure-Python, production-grade):
 
 ```bash
 cd app
+pip install -r requirements.txt waitress
+set LYNX_DATA_DIR=%CD%\data
+python serve.py
+# open http://localhost:5001  (also reachable on your LAN IP, e.g. http://192.168.1.9:5001)
+```
+
+The app binds to `0.0.0.0` so any phone on the same WiFi can open the LAN IP.
+Keep this PC on while operators are logging. Data persists in `data/lynx.db`.
+
+(For a quick dev check you can also use Flask's built-in server: `python app.py` →
+http://127.0.0.1:5000 — but Waitress is the proper always-on option.)
+
+## Run locally (Linux / Mac / cloud)
+
+```bash
 pip install -r requirements.txt
-export LYNX_DATA_DIR="$(pwd)/data"   # where sqlite is stored
-python app.py
-# open http://127.0.0.1:5000  (also on your LAN IP)
+export LYNX_DATA_DIR="$(pwd)/data"
+gunicorn app:app --bind 0.0.0.0:5000
 ```
 
 ## Deploy to the cloud (operators use a normal URL from anywhere)
