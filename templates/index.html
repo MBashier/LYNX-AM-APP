@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Lynx AM — Production Log</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header>
+  <div class="brand">LYNX&nbsp;AM <span>Production Log</span></div>
+  <div class="datebar">
+    <input type="date" id="datePicker" />
+    <button id="loadBtn" class="primary">Load</button>
+  </div>
+</header>
+
+<nav id="tabs">
+  <button data-tab="setup" class="active">Setup</button>
+  <button data-tab="prod">Production</button>
+  <button data-tab="weight">Weight</button>
+  <button data-tab="dia">Diameter</button>
+  <button data-tab="trans">Transitions</button>
+  <button data-tab="summary">Summary</button>
+</nav>
+
+<main>
+  <!-- SETUP -->
+  <section id="tab-setup" class="tab active">
+    <h2>Day Setup</h2>
+    <div class="grid2">
+      <label>Line / Machine<input id="s_line" value="GS Mach Line 1"></label>
+      <label>Default Material<input id="s_mat" value="PLA+"></label>
+      <label>Target Spool Wt (kg)<input id="s_tw" type="number" step="0.01" value="1"></label>
+      <label>Weight Tol ±(kg)<input id="s_wt" type="number" step="0.001" value="0.02"></label>
+      <label>Target Dia (mm)<input id="s_td" type="number" step="0.01" value="1.75"></label>
+      <label>Dia Tol ±(mm)<input id="s_dt" type="number" step="0.001" value="0.05"></label>
+      <label class="full">Batch IDs covered<input id="s_bid" placeholder="LYNX-PLA-WHT-217, LYNX-PLA-WHT-218"></label>
+    </div>
+    <button class="primary big" id="saveSetup">Save Setup</button>
+  </section>
+
+  <!-- PRODUCTION -->
+  <section id="tab-prod" class="tab">
+    <h2>Production Log (per half-shift)</h2>
+    <div class="grid2">
+      <label>Shift<input id="p_shift" placeholder="Shift 1"></label>
+      <label>Block / Time<input id="p_block" placeholder="06:00–10:00"></label>
+      <label>Color / Item<input id="p_color"></label>
+      <label>Batch ID<input id="p_bid" placeholder="LYNX-PLA-WHT-217"></label>
+      <label>Target kg<input id="p_tgt" type="number" step="0.1"></label>
+      <label>Actual kg<input id="p_act" type="number" step="0.1"></label>
+      <label>Operator<input id="p_op"></label>
+      <label>Notes<input id="p_notes"></label>
+    </div>
+    <button class="primary big" onclick="addBlock()">Add Block</button>
+    <div id="prodList" class="list"></div>
+  </section>
+
+  <!-- WEIGHT -->
+  <section id="tab-weight" class="tab">
+    <h2>Hourly Spool Weight (1 random spool/hr)</h2>
+    <div class="grid2">
+      <label>Hour<input id="w_hour" type="number" min="1" max="24"></label>
+      <label>Time<input id="w_time" type="time"></label>
+      <label>Color<input id="w_color"></label>
+      <label>Batch ID<input id="w_bid"></label>
+      <label>Reading (kg)<input id="w_read" type="number" step="0.001" placeholder="1.000"></label>
+    </div>
+    <button class="primary big" onclick="addWeight()">Add Reading</button>
+    <div id="weightList" class="list"></div>
+  </section>
+
+  <!-- DIAMETER -->
+  <section id="tab-dia" class="tab">
+    <h2>Hourly Diameter (1 random spool/hr)</h2>
+    <div class="grid2">
+      <label>Hour<input id="d_hour" type="number" min="1" max="24"></label>
+      <label>Time<input id="d_time" type="time"></label>
+      <label>Color<input id="d_color"></label>
+      <label>Batch ID<input id="d_bid"></label>
+      <label>Reading (mm)<input id="d_read" type="number" step="0.001" placeholder="1.750"></label>
+    </div>
+    <button class="primary big" onclick="addDiameter()">Add Reading</button>
+    <div id="diaList" class="list"></div>
+  </section>
+
+  <!-- TRANSITIONS -->
+  <section id="tab-trans" class="tab">
+    <h2>Color Transition / Purge</h2>
+    <div class="grid2">
+      <label>Time<input id="t_time" type="time"></label>
+      <label>Line<input id="t_line" value="GS Mach Line 1"></label>
+      <label>From Color<input id="t_from"></label>
+      <label>To Color<input id="t_to"></label>
+      <label>Batch ID<input id="t_bid"></label>
+      <label>Transition Spools<input id="t_sp" type="number"></label>
+      <label>Transition Wt (kg)<input id="t_wt" type="number" step="0.1"></label>
+      <label>Operator<input id="t_op"></label>
+      <label class="full">Notes<input id="t_notes"></label>
+    </div>
+    <button class="primary big" onclick="addTransition()">Add Transition</button>
+    <div id="transList" class="list"></div>
+  </section>
+
+  <!-- SUMMARY -->
+  <section id="tab-summary" class="tab">
+    <h2>Daily Summary</h2>
+    <div id="summaryBox" class="summary"></div>
+    <div class="actions">
+      <a id="csvLink" class="btn" href="#">⬇ Export CSV</a>
+      <button class="btn" onclick="refreshSummary()">↻ Refresh</button>
+      <button class="btn" onclick="copyWeekly()">📋 Copy for weekly report</button>
+    </div>
+    <pre id="weeklyText" class="weekly"></pre>
+  </section>
+</main>
+
+<div id="toast"></div>
+<script src="/static/app.js"></script>
+</body>
+</html>

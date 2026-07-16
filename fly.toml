@@ -1,0 +1,41 @@
+# Lynx AM Production Log — Fly.io deployment
+#
+# 1. Install Fly CLI: https://fly.io/docs/hands-on/install-flyctl/
+# 2. fly launch --no-deploy   (creates fly.toml; say no to postgres if using sqlite)
+# 3. fly volumes create lynx_data --size 1 --region <region>
+# 4. fly deploy
+#
+# The app stores sqlite at $LYNX_DATA_DIR which points to /data (persistent volume).
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  PORT = "8080"
+  LYNX_DATA_DIR = "/data"
+
+[mounts]
+  source = "lynx_data"
+  destination = "/data"
+
+[[services]]
+  internal_port = 8080
+  protocol = "tcp"
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 0
+
+  [[services.ports]]
+    handlers = ["http"]
+    port = 80
+    force_https = true
+
+  [services.concurrency]
+    type = "connections"
+    hard_limit = 50
+    soft_limit = 25
+
+[[vm]]
+  cpu_kind = "shared"
+  cpus = 1
+  memory_mb = 256

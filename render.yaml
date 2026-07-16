@@ -1,0 +1,15 @@
+# Lynx AM Production Log — Render deployment (free tier)
+#
+# 1. Push this folder to a GitHub repo.
+# 2. https://render.com → New → Web Service → connect repo.
+# 3. Build command: pip install -r requirements.txt
+# 4. Start command: gunicorn app:app
+# 5. Free plan: the service sleeps when idle; first load after idle takes ~30s.
+# 6. Data persists in the service's local disk (ephemeral only on rebuild —
+#    export CSVs regularly, or upgrade to a paid plan with persistent disk).
+
+buildCommand = "pip install -r requirements.txt"
+startCommand = "gunicorn app:app --bind 0.0.0.0:$PORT"
+envVars = [
+  { key = "PYTHON_VERSION", value = "3.11" }
+]
