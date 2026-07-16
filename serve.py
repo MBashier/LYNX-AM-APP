@@ -1,3 +1,5 @@
+import os
 from waitress import serve
 import app
-serve(app.app, host="0.0.0.0", port=5001, threads=4)
+port = int(os.environ.get("PORT", 5001))
+serve(app.app, host="0.0.0.0", port=port, threads=4)

@@ -48,10 +48,44 @@ def init_db():
       line TEXT, from_color TEXT, to_color TEXT, batch_id TEXT,
       spools INTEGER, weight_kg REAL, operator TEXT, notes TEXT
     );
+    CREATE TABLE IF NOT EXISTS materials(
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT UNIQUE NOT NULL,
+      code TEXT NOT NULL,
+      target_weight REAL, target_dia REAL
+    );
+    CREATE TABLE IF NOT EXISTS colors(
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT UNIQUE NOT NULL,
+      code TEXT NOT NULL
+    );
     """)
     conn.commit(); conn.close()
 
+def seed_catalog():
+    conn = db(); c = conn.cursor()
+    if not c.execute("SELECT COUNT(*) FROM materials").fetchone()[0]:
+        mats = [
+            ("PLA+", "PLA", 1.0, 1.75),
+            ("PLA CF", "PLACF", 1.0, 1.75),
+            ("PETG HF", "PETG", 1.0, 1.75),
+            ("PETG-CF", "PETGCF", 1.0, 1.75),
+            ("ABS CF", "ABSCF", 1.0, 1.75),
+            ("ABS+/ASA", "ABS", 1.0, 1.75),
+        ]
+        c.executemany("INSERT INTO materials(name,code,target_weight,target_dia) VALUES(?,?,?,?)", mats)
+    if not c.execute("SELECT COUNT(*) FROM colors").fetchone()[0]:
+        cols = [
+            ("White", "wht"), ("Black", "blk"), ("Red", "red"), ("Blue", "blu"),
+            ("Green", "grn"), ("Grey", "gry"), ("Yellow", "yel"), ("Orange", "org"),
+            ("Natural", "nat"), ("Silver", "sil"), ("Purple", "pur"), ("Brown", "brn"),
+            ("Transparent", "tra"),
+        ]
+        c.executemany("INSERT INTO colors(name,code) VALUES(?,?)", cols)
+    conn.commit(); conn.close()
+
 init_db()
+seed_catalog()
 
 def d_or_null(v):
     try:
@@ -77,6 +111,81 @@ def index():
 def setup_defaults():
     return jsonify(DEFAULTS)
 
+def batch_id(material, color, d):
+    """Build LYNX batch id: MATERIALCODE-COLORCODE-DDMMYY.
+    Material/color codes are resolved from the catalog tables when available."""
+    try:
+        y, m, day = d.split("-")
+        ddmmyy = f"{day}{m}{y[2:]}"
+    except Exception:
+        ddmmyy = d
+    mat_code = ""
+    col_code = ""
+    if material:
+        conn = db(); c = conn.cursor()
+        row = c.execute("SELECT code FROM materials WHERE name=?", (material,)).fetchone()
+        if row: mat_code = row["code"]
+        else: mat_code = material.upper().replace(" ", "").split("-")[0]
+        row = c.execute("SELECT code FROM colors WHERE name=?", (color,)).fetchone() if color else None
+        if row: col_code = row["code"]
+        conn.close()
+    if not col_code and color:
+        col_code = color.lower().replace(" ", "").split("-")[0][:3]
+    if not mat_code: mat_code = "MAT"
+    if not col_code: col_code = "col"
+    return f"{mat_code}-{col_code}-{ddmmyy}"
+
+@app.route("/api/catalog")
+def catalog():
+    conn = db(); c = conn.cursor()
+    mats = [dict(r) for r in c.execute("SELECT * FROM materials ORDER BY name")]
+    cols = [dict(r) for r in c.execute("SELECT * FROM colors ORDER BY name")]
+    conn.close()
+    return jsonify(materials=mats, colors=cols)
+
+@app.route("/api/material", methods=["POST"])
+def upsert_material():
+    p = request.json
+    conn = db(); c = conn.cursor()
+    try:
+        if p.get("id"):
+            c.execute("UPDATE materials SET name=?,code=?,target_weight=?,target_dia=? WHERE id=?",
+                      (p["name"], p["code"], d_or_null(p.get("target_weight")), d_or_null(p.get("target_dia")), p["id"]))
+        else:
+            c.execute("INSERT INTO materials(name,code,target_weight,target_dia) VALUES(?,?,?,?)",
+                      (p["name"], p["code"], d_or_null(p.get("target_weight")), d_or_null(p.get("target_dia"))))
+        conn.commit()
+    except sqlite3.IntegrityError:
+        conn.close()
+        return jsonify(ok=False, error="A material with that name already exists"), 409
+    conn.close()
+    return jsonify(ok=True)
+
+@app.route("/api/color", methods=["POST"])
+def upsert_color():
+    p = request.json
+    conn = db(); c = conn.cursor()
+    try:
+        if p.get("id"):
+            c.execute("UPDATE colors SET name=?,code=? WHERE id=?", (p["name"], p["code"], p["id"]))
+        else:
+            c.execute("INSERT INTO colors(name,code) VALUES(?,?)", (p["name"], p["code"]))
+        conn.commit()
+    except sqlite3.IntegrityError:
+        conn.close()
+        return jsonify(ok=False, error="A color with that name already exists"), 409
+    conn.close()
+    return jsonify(ok=True)
+
+@app.route("/api/catalog-delete/<tbl>/<int:rid>", methods=["POST"])
+def delete_catalog(tbl, rid):
+    allowed = {"material": "materials", "color": "colors"}
+    if tbl not in allowed: return jsonify(ok=False), 400
+    conn = db(); c = conn.cursor()
+    c.execute(f"DELETE FROM {allowed[tbl]} WHERE id=?", (rid,))
+    conn.commit(); conn.close()
+    return jsonify(ok=True)
+
 @app.route("/api/day/<d>", methods=["GET"])
 def get_day(d):
     conn = db(); c = conn.cursor()
@@ -91,7 +200,9 @@ def get_day(d):
     diameters = [dict(r) for r in c.execute("SELECT * FROM diameter_logs WHERE day_id=? ORDER BY hour", (day["id"],))]
     transitions = [dict(r) for r in c.execute("SELECT * FROM transitions WHERE day_id=? ORDER BY id", (day["id"],))]
     conn.close()
-    return jsonify(dict(exists=True, **day, blocks=blocks, weights=weights, diameters=diameters, transitions=transitions))
+    mat = (day.get("material_default") or DEFAULTS["material_default"])
+    bp = batch_id(mat, "", d)
+    return jsonify(dict(exists=True, **day, blocks=blocks, weights=weights, diameters=diameters, transitions=transitions, batch_preview=bp))
 
 @app.route("/api/day", methods=["POST"])
 def upsert_day():
