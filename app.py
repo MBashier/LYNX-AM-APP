@@ -65,6 +65,10 @@ def init_db():
       line TEXT, from_color TEXT, to_color TEXT, batch_id TEXT,
       spools INTEGER, weight_kg REAL, operator TEXT, notes TEXT
     );
+    CREATE TABLE IF NOT EXISTS plans(
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      material TEXT, color TEXT, qty_kg REAL
+    );
     CREATE TABLE IF NOT EXISTS materials(
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT UNIQUE NOT NULL,
@@ -244,6 +248,33 @@ def delete_catalog(tbl, rid):
     if tbl not in allowed: return jsonify(ok=False), 400
     conn = db(); c = conn.cursor()
     c.execute(f"DELETE FROM {allowed[tbl]} WHERE id=?", (rid,))
+    conn.commit(); conn.close()
+    return jsonify(ok=True)
+
+@app.route("/api/plans")
+def get_plans():
+    conn = db(); c = conn.cursor()
+    rows = [dict(r) for r in c.execute("SELECT * FROM plans ORDER BY id")]
+    conn.close()
+    return jsonify(plans=rows)
+
+@app.route("/api/plan", methods=["POST"])
+def add_plan():
+    p = request.json
+    conn = db(); c = conn.cursor()
+    if p.get("id"):
+        c.execute("UPDATE plans SET material=?,color=?,qty_kg=? WHERE id=?",
+                  (p.get("material"), p.get("color"), d_or_null(p.get("qty_kg")), p["id"]))
+    else:
+        c.execute("INSERT INTO plans(material,color,qty_kg) VALUES(?,?,?)",
+                  (p.get("material"), p.get("color"), d_or_null(p.get("qty_kg"))))
+    conn.commit(); conn.close()
+    return jsonify(ok=True)
+
+@app.route("/api/plan/<int:rid>", methods=["POST"])
+def delete_plan(rid):
+    conn = db(); c = conn.cursor()
+    c.execute("DELETE FROM plans WHERE id=?", (rid,))
     conn.commit(); conn.close()
     return jsonify(ok=True)
 

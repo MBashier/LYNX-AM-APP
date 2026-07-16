@@ -21,6 +21,7 @@
   <button data-tab="weight">Weight</button>
   <button data-tab="dia">Diameter</button>
   <button data-tab="trans">Transitions</button>
+  <button data-tab="plan">Plan</button>
   <button data-tab="catalog">Catalog</button>
   <button data-tab="summary">Summary</button>
 </nav>
@@ -39,10 +40,6 @@
       <label>Spools / hr<input id="s_sph" type="number" step="1" value="10"></label>
       <label class="full">Batch IDs covered<input id="s_bid" placeholder="LYNX-PLA-WHT-217, LYNX-PLA-WHT-218"></label>
     </div>
-
-    <h3>Planned Colors (this run / day)</h3>
-    <p class="hint">Pick every color you will run today — they appear as quick buttons on Production.</p>
-    <select id="s_plan" multiple class="multi"></select>
 
     <div class="batchpreview">Auto batch ID format: <code id="bidPreview">—</code>
       <small>(material-color-DDMMYY)</small></div>
@@ -128,6 +125,21 @@
     </div>
     <button class="primary big" onclick="addTransition()">Add Transition</button>
     <div id="transList" class="list"></div>
+  </section>
+
+  <!-- PLAN -->
+  <section id="tab-plan" class="tab">
+    <h2>Production Plan (Sun → Thu, 5 days)</h2>
+    <p class="hint">Production rate = Spools/hr (Setup) × Target spool weight. Each line is spread evenly across the 5 days; if a day's load exceeds the available capacity (rate × 24h × 3 shifts) it's flagged.</p>
+    <div class="grid2">
+      <label>Material<select id="pl_mat"></select></label>
+      <label>Color<select id="pl_color"></select></label>
+      <label>Quantity (kg)<input id="pl_qty" type="number" step="0.1"></label>
+      <button class="primary" onclick="addPlan()">+ Add Line</button>
+    </div>
+    <div id="planList" class="list"></div>
+    <h3>5-Day Distribution</h3>
+    <div id="planBoard" class="board"></div>
   </section>
 
   <!-- CATALOG -->

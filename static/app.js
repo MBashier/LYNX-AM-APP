@@ -3,7 +3,6 @@ let curDate = new Date().toISOString().slice(0,10);
 let CAT = { materials: [], colors: [] };
 let OPS = [];
 let SHIFTS = [];
-let PLAN = [];
 let SETUP = {};
 
 function toast(msg){
@@ -34,6 +33,7 @@ document.querySelectorAll("#tabs button").forEach(b=>{
     b.classList.add("active");
     $("tab-"+b.dataset.tab).classList.add("active");
     if (b.dataset.tab === "catalog") renderCatalog();
+    if (b.dataset.tab === "plan") loadPlans();
   };
 });
 
@@ -148,21 +148,19 @@ async function loadAll(){
   $("s_sph").value = d.spools_per_hr ?? 10;
   $("s_bid").value = d.batch_ids || "";
   $("bidPreview").textContent = d.batch_preview || "—";
-  fillSelect("s_plan", CAT.colors, "", false);
-  // reflect planned_colors selected state
-  Array.from($("s_plan").options).forEach(o=>{ o.selected = PLAN.includes(o.value); });
   fillSelect("p_mat", CAT.materials, d.material_default || "PLA+");
   fillSelect("p_color", CAT.colors, "");
   fillSelect("w_color", CAT.colors, "");
   fillSelect("d_color", CAT.colors, "");
   fillSelect("t_from", CAT.colors, "");
   fillSelect("t_to", CAT.colors, "");
+  fillSelect("pl_mat", CAT.materials, "");
+  fillSelect("pl_color", CAT.colors, "");
   fillOperators("p_op", "");
   fillOperators("w_op", "");
   fillOperators("d_op", "");
   fillOperators("t_op", "");
   refreshTargets();
-  renderPlan();
   if (d.blocks) renderBlocks(d.blocks); else renderBlocks([]);
   if (d.weights) renderWeights(d.weights); else renderWeights([]);
   if (d.diameters) renderDiameters(d.diameters); else renderDiameters([]);
@@ -171,21 +169,65 @@ async function loadAll(){
   refreshSummary();
 }
 
-function renderPlan(){
-  const box = $("planBox");
-  if (!PLAN.length){ box.innerHTML = `<div class="hint">No planned colors yet — set them in Setup (this run / day).</div>`; }
-  else {
-    box.innerHTML = `<div class="hint"><b>Plan for ${esc(curDate)}:</b> ${PLAN.map(c=>esc(c)).join(" · ")}</div>`;
-  }
-  // planned color quick chips on Production
-  const chips = $("planChips"); chips.innerHTML = "";
-  PLAN.forEach(c=>{
-    const b = document.createElement("button");
-    b.className = "chip";
-    b.textContent = "Run " + c;
-    b.onclick = ()=>{ $("p_color").value = c; refreshBids(); toast("Color set: " + c); };
-    chips.appendChild(b);
+// ---- plan tab ----
+const PLAN_DAYS = ["Sun","Mon","Tue","Wed","Thu"];
+function prodRateKgPerDay(){
+  const sph = parseFloat($("s_sph").value) || 10;
+  const tw = parseFloat($("s_tw").value) || 1;
+  return sph * tw * 24; // 24h continuous capacity (3 shifts)
+}
+async function loadPlans(){
+  const r = await getJSON("/api/plans");
+  renderPlanList(r.plans || []);
+  renderPlanBoard(r.plans || []);
+}
+function renderPlanList(rows){
+  const el = $("planList"); el.innerHTML="";
+  (rows||[]).forEach(p=>{
+    const div = document.createElement("div"); div.className="row";
+    div.innerHTML = `<div class="info"><b>${esc(p.material)} · ${esc(p.color)}</b><br>${esc(p.qty_kg)} kg</div>`;
+    const wrap = document.createElement("div"); wrap.style.display="flex"; wrap.style.gap="6px";
+    const ed = document.createElement("button"); ed.className="del"; ed.textContent="✎"; ed.style.color="var(--accent2)";
+    ed.onclick = ()=>{ $("pl_mat").value=p.material; $("pl_color").value=p.color; $("pl_qty").value=p.qty_kg; editPlan=p.id; toast("Editing — tap Add Line to save"); };
+    const del = document.createElement("button"); del.className="del"; del.textContent="✕";
+    del.onclick = async ()=>{ await postJSON(`/api/plan/${p.id}`,{}); loadPlans(); };
+    wrap.appendChild(ed); wrap.appendChild(del); div.appendChild(wrap); el.appendChild(div);
   });
+  if(!rows.length) el.innerHTML = `<div class="hint">No plan lines yet.</div>`;
+}
+function renderPlanBoard(rows){
+  const el = $("planBoard"); el.innerHTML="";
+  const cap = prodRateKgPerDay();      // daily capacity across 3 shifts (kg/day)
+  const n = PLAN_DAYS.length;
+  rows.forEach(p=>{
+    const per = (p.qty_kg||0)/n;        // kg per plan day
+    const overload = per > cap;         // a single day's load exceeds full daily capacity
+    const tw = parseFloat($("s_tw").value) || 1;
+    const block = document.createElement("div"); block.className="planline";
+    block.innerHTML = `<div class="pl-head"><b>${esc(p.material)} · ${esc(p.color)}</b> — ${esc(p.qty_kg)} kg</div>`;
+    const grid = document.createElement("div"); grid.className="pl-grid";
+    PLAN_DAYS.forEach((day)=>{
+      const cell = document.createElement("div"); cell.className="pl-cell"+(overload?" over":"");
+      cell.innerHTML = `<div class="pl-day">${day}</div><div class="pl-kg">${per.toFixed(1)} kg</div><div class="pl-sub">${(per/tw).toFixed(0)} sp · ${(per/cap*24).toFixed(1)} h</div>`;
+      grid.appendChild(cell);
+    });
+    block.appendChild(grid);
+    if (overload) block.insertAdjacentHTML("beforeend", `<div class="pl-warn">⚠ Exceeds daily capacity (${cap.toFixed(0)} kg/day across 3 shifts)</div>`);
+    el.appendChild(block);
+  });
+  if(!rows.length) el.innerHTML = `<div class="hint">Add plan lines above to see the 5-day split.</div>`;
+}
+let editPlan = null;
+async function addPlan(){
+  const mat = $("pl_mat").value, col = $("pl_color").value, qty = $("pl_qty").value;
+  if(!mat || !col || !qty){ toast("Material, color and qty required"); return; }
+  const body = { material: mat, color: col, qty_kg: qty };
+  if (editPlan) body.id = editPlan;
+  await postJSON("/api/plan", body);
+  editPlan = null;
+  $("pl_qty").value="";
+  loadPlans();
+  toast("Plan line saved");
 }
 
 // ---- setup ----
@@ -493,6 +535,9 @@ Transition loss: ${s.transition_spools} spools / ${s.transition_weight} kg
 QC: ${s.qc_status}`;
   navigator.clipboard.writeText(txt).then(()=>toast("Copied for weekly report"));
 }
+
+// recompute plan board when production rate changes in Setup
+["s_sph","s_tw"].forEach(id=>{ const el=$(id); if(el) el.addEventListener("input", ()=>{ if($("tab-plan").classList.contains("active")) loadPlans(); }); });
 
 // ---- bootstrap ----
 (async ()=>{
