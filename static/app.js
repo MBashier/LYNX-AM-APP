@@ -1,6 +1,10 @@
 const API = "";
 let curDate = new Date().toISOString().slice(0,10);
 let CAT = { materials: [], colors: [] };
+let OPS = [];
+let SHIFTS = [];
+let PLAN = [];
+let SETUP = {};
 
 function toast(msg){
   const t = document.getElementById("toast");
@@ -38,21 +42,59 @@ function nowTime(){
   const d = new Date();
   return d.toTimeString().slice(0,5);
 }
-function nowHour(){
-  return new Date().getHours();
+function nowHour(){ return new Date().getHours(); }
+
+// 3-shift model: S1 08:30-16:30, S2 16:30-00:30, S3 00:30-08:30
+function toMin(t){ let [h,m]=t.split(":").map(Number); return h*60+m; }
+function currentShift(start, end){
+  const now = toMin(nowTime());
+  const s = toMin(start), e = toMin(end);
+  if (start === end) return false;
+  if (e > s) return now >= s && now < e;            // normal day window
+  return now >= s || now < e;                       // overnight window
 }
+function guessShift(){
+  for (const sh of SHIFTS) if (currentShift(sh.start, sh.end)) return sh.name;
+  return SHIFTS.length ? SHIFTS[0].name : "S1";
+}
+// 4h block within the current shift, snapped to shift start
+function currentBlock(){
+  const now = nowTime();
+  const sh = SHIFTS.find(x=>x.name===guessShift());
+  let start = sh ? sh.start : "08:30";
+  // find nearest past 4h boundary from shift start
+  const base = toMin(start);
+  const off = (toMin(now) - base + 1440) % 1440;
+  const b = Math.floor(off / 240) * 240;
+  const bh = (base + b) % 1440, bm = (base + b + 240) % 1440;
+  const fmt = m => String(Math.floor(m/60)%24).padStart(2,"0")+":"+String(m%60).padStart(2,"0");
+  return fmt(bh) + "–" + fmt(bm);
+}
+function blockTarget(){
+  // spools_per_hr * 4h * target spool weight
+  const sph = parseFloat($("s_sph").value) || 10;
+  const tw = parseFloat($("s_tw").value) || 1;
+  return Math.round(sph * 4 * tw * 10) / 10;
+}
+
 function setNow(field){
   const el = $(field); if (!el) return;
-  if (field === "p_block"){ el.value = nowHour() + ":00-" + ((nowHour()+4)%24) + ":00"; }
-  else { el.value = nowTime(); }
+  if (field === "p_block"){
+    $("p_shift").value = guessShift();
+    el.value = currentBlock();
+    $("p_tgt").value = blockTarget();
+    toast($("p_shift").value + " · " + el.value + " · target " + $("p_tgt").value + " kg");
+  } else {
+    el.value = nowTime();
+  }
 }
+
 function refreshTargets(){
   const tw = ($("s_tw").value || "1"), wt = ($("s_wt").value || "0.02");
   const td = ($("s_td").value || "1.75"), dt = ($("s_dt").value || "0.05");
   const wh = $("w_target_hint"); if (wh) wh.textContent = `Target: ${tw} kg ± ${wt}  ·  spec ${td} mm ± ${dt}`;
   const dh = $("d_target_hint"); if (dh) dh.textContent = `Target: ${td} mm ± ${dt}  ·  spec ${tw} kg ± ${wt}`;
-  // prefill Production target from setup if empty
-  if ($("p_tgt") && !$("p_tgt").value) $("p_tgt").value = tw;
+  if ($("p_tgt") && !$("p_tgt").value) $("p_tgt").value = blockTarget();
 }
 function codeFor(arr, name){ const m = arr.find(x=>x.name===name); return m ? m.code : (name||"").toLowerCase().slice(0,3); }
 function buildBid(material, color){
@@ -72,19 +114,30 @@ function refreshBids(){
 }
 
 // ---- dropdowns ----
-function fillSelect(id, items, selected){
+function fillSelect(id, items, selected, withBlank){
   const el = $(id); if(!el) return;
   el.innerHTML = "";
+  if (withBlank){ const o=document.createElement("option"); o.value=""; o.textContent="—"; el.appendChild(o); }
   items.forEach(it=>{
     const o = document.createElement("option");
-    o.value = it.name; o.textContent = it.name + (it.code ? ` (${it.code})` : "");
+    o.value = it.name; o.textContent = it.name;
     if (it.name === selected) o.selected = true;
     el.appendChild(o);
+  });
+}
+function fillOperators(id, selected){
+  const el = $(id); if(!el) return;
+  el.innerHTML = "";
+  OPS.forEach(o=>{
+    const opt = document.createElement("option"); opt.value=o.name; opt.textContent=o.name;
+    if (o.name===selected) opt.selected=true;
+    el.appendChild(opt);
   });
 }
 
 async function loadAll(){
   const d = await getJSON(`/api/day/${curDate}`);
+  SETUP = d; PLAN = (d.planned_colors||"").split(",").map(s=>s.trim()).filter(Boolean);
   $("s_line").value = d.line || "GS Mach Line 1";
   fillSelect("s_mat", CAT.materials, d.material_default || "PLA+");
   $("s_mat").value = d.material_default || "PLA+";
@@ -92,15 +145,24 @@ async function loadAll(){
   $("s_wt").value = d.weight_tol ?? 0.02;
   $("s_td").value = d.target_dia ?? 1.75;
   $("s_dt").value = d.dia_tol ?? 0.05;
+  $("s_sph").value = d.spools_per_hr ?? 10;
   $("s_bid").value = d.batch_ids || "";
   $("bidPreview").textContent = d.batch_preview || "—";
+  fillSelect("s_plan", CAT.colors, "", false);
+  // reflect planned_colors selected state
+  Array.from($("s_plan").options).forEach(o=>{ o.selected = PLAN.includes(o.value); });
   fillSelect("p_mat", CAT.materials, d.material_default || "PLA+");
   fillSelect("p_color", CAT.colors, "");
   fillSelect("w_color", CAT.colors, "");
   fillSelect("d_color", CAT.colors, "");
   fillSelect("t_from", CAT.colors, "");
   fillSelect("t_to", CAT.colors, "");
+  fillOperators("p_op", "");
+  fillOperators("w_op", "");
+  fillOperators("d_op", "");
+  fillOperators("t_op", "");
   refreshTargets();
+  renderPlan();
   if (d.blocks) renderBlocks(d.blocks); else renderBlocks([]);
   if (d.weights) renderWeights(d.weights); else renderWeights([]);
   if (d.diameters) renderDiameters(d.diameters); else renderDiameters([]);
@@ -109,8 +171,51 @@ async function loadAll(){
   refreshSummary();
 }
 
+function renderPlan(){
+  const box = $("planBox");
+  if (!PLAN.length){ box.innerHTML = `<div class="hint">No planned colors yet — set them in Setup (this run / day).</div>`; }
+  else {
+    box.innerHTML = `<div class="hint"><b>Plan for ${esc(curDate)}:</b> ${PLAN.map(c=>esc(c)).join(" · ")}</div>`;
+  }
+  // planned color quick chips on Production
+  const chips = $("planChips"); chips.innerHTML = "";
+  PLAN.forEach(c=>{
+    const b = document.createElement("button");
+    b.className = "chip";
+    b.textContent = "Run " + c;
+    b.onclick = ()=>{ $("p_color").value = c; refreshBids(); toast("Color set: " + c); };
+    chips.appendChild(b);
+  });
+}
+
 // ---- setup ----
+async function addOperator(){
+  const name = ($("op_name").value||"").trim();
+  if(!name){ toast("Enter a name"); return; }
+  const r = await postJSON("/api/operator", { name });
+  if (!r.ok){ toast(r.error || "Could not add"); return; }
+  $("op_name").value = "";
+  await loadOperators();
+  toast("Operator added");
+}
+async function loadOperators(){
+  const r = await getJSON("/api/operators");
+  OPS = r.operators || [];
+  renderOperators();
+  ["p_op","w_op","d_op","t_op"].forEach(id=>fillOperators(id, $(id) && $(id).value));
+}
+function renderOperators(){
+  const el = $("opList"); el.innerHTML = "";
+  OPS.forEach(o=>{
+    const div = document.createElement("div"); div.className="row";
+    div.innerHTML = `<div class="info"><b>${esc(o.name)}</b></div>`;
+    const del = document.createElement("button"); del.className="del"; del.textContent="✕";
+    del.onclick = async ()=>{ await postJSON(`/api/operator/${o.id}`,{}); await loadOperators(); };
+    div.appendChild(del); el.appendChild(div);
+  });
+}
 $("saveSetup").onclick = async ()=>{
+  const planned = Array.from($("s_plan").selectedOptions).map(o=>o.value).join(",");
   await postJSON("/api/day", {
     date: curDate,
     line: $("s_line").value,
@@ -119,6 +224,8 @@ $("saveSetup").onclick = async ()=>{
     weight_tol: $("s_wt").value,
     target_dia: $("s_td").value,
     dia_tol: $("s_dt").value,
+    spools_per_hr: $("s_sph").value,
+    planned_colors: planned,
     batch_ids: $("s_bid").value,
   });
   toast("Setup saved"); loadAll();
@@ -132,7 +239,7 @@ function renderBlocks(rows){
     const div = document.createElement("div"); div.className="row";
     div.innerHTML = `<div class="info"><b>${esc(r.color)}</b> · ${esc(r.batch_id)}<br>
       ${esc(r.shift)} ${esc(r.block_time)} · Tgt ${esc(r.target_kg)} / Act ${esc(r.actual_kg)} kg<br>
-      <small>${esc(r.operator)} ${esc(r.notes)?"· "+esc(r.notes):""}</small></div>`;
+      <small>${esc(r.operator)?esc(r.operator)+" · ":""}${esc(r.notes)?esc(r.notes):""}</small></div>`;
     const wrap = document.createElement("div"); wrap.style.display="flex"; wrap.style.gap="6px";
     const ed = document.createElement("button"); ed.className="del"; ed.textContent="✎"; ed.style.color="var(--accent2)";
     ed.onclick = ()=>{
@@ -169,7 +276,7 @@ async function addBlock(){
   if (editBlock) body.id = editBlock;
   await postJSON("/api/blocks", body);
   editBlock = null;
-  ["p_shift","p_block","p_tgt","p_act","p_op","p_notes"].forEach(id=>$(id).value="");
+  ["p_shift","p_block","p_color","p_tgt","p_act","p_op","p_notes"].forEach(id=>$(id).value="");
   toast("Block added · "+bid); loadAll();
 }
 
@@ -180,7 +287,7 @@ function renderWeights(rows){
   (rows||[]).forEach(r=>{
     const div = document.createElement("div"); div.className="row";
     div.innerHTML = `<div class="info">H${esc(r.hour)} · ${esc(r.time)} · <b>${esc(r.color)}</b><br>
-      ${esc(r.batch_id)} · ${esc(r.reading_kg)} kg</div>`;
+      ${esc(r.batch_id)} · ${esc(r.reading_kg)} kg${esc(r.operator)? " · "+esc(r.operator):""}</div>`;
     const wrap = document.createElement("div"); wrap.style.display="flex"; wrap.style.gap="6px";
     const ed = document.createElement("button"); ed.className="del"; ed.textContent="✎"; ed.style.color="var(--accent2)";
     ed.onclick = ()=>{
@@ -188,6 +295,7 @@ function renderWeights(rows){
       $("w_hour").value = r.hour??"";
       $("w_time").value = r.time||"";
       $("w_color").value = r.color||"";
+      $("w_op").value = r.operator||"";
       $("w_read").value = r.reading_kg??"";
       refreshBids();
       toast("Editing — tap Add to save");
@@ -206,11 +314,12 @@ async function addWeight(){
     color: $("w_color").value,
     batch_id: bid,
     reading_kg: $("w_read").value,
+    operator: $("w_op").value,
   };
   if (editWeight) body.id = editWeight;
   await postJSON("/api/weight", body);
   editWeight = null;
-  ["w_time","w_color","w_read"].forEach(id=>$(id).value="");
+  ["w_time","w_color","w_read","w_op"].forEach(id=>$(id).value="");
   $("w_hour").value = nowHour();
   toast("Weight reading added · "+bid); loadAll();
 }
@@ -222,7 +331,7 @@ function renderDiameters(rows){
   (rows||[]).forEach(r=>{
     const div = document.createElement("div"); div.className="row";
     div.innerHTML = `<div class="info">H${esc(r.hour)} · ${esc(r.time)} · <b>${esc(r.color)}</b><br>
-      ${esc(r.batch_id)} · ${esc(r.reading_mm)} mm</div>`;
+      ${esc(r.batch_id)} · ${esc(r.reading_mm)} mm${esc(r.operator)? " · "+esc(r.operator):""}</div>`;
     const wrap = document.createElement("div"); wrap.style.display="flex"; wrap.style.gap="6px";
     const ed = document.createElement("button"); ed.className="del"; ed.textContent="✎"; ed.style.color="var(--accent2)";
     ed.onclick = ()=>{
@@ -230,6 +339,7 @@ function renderDiameters(rows){
       $("d_hour").value = r.hour??"";
       $("d_time").value = r.time||"";
       $("d_color").value = r.color||"";
+      $("d_op").value = r.operator||"";
       $("d_read").value = r.reading_mm??"";
       refreshBids();
       toast("Editing — tap Add to save");
@@ -248,11 +358,12 @@ async function addDiameter(){
     color: $("d_color").value,
     batch_id: bid,
     reading_mm: $("d_read").value,
+    operator: $("d_op").value,
   };
   if (editDia) body.id = editDia;
   await postJSON("/api/diameter", body);
   editDia = null;
-  ["d_time","d_color","d_read"].forEach(id=>$(id).value="");
+  ["d_time","d_color","d_read","d_op"].forEach(id=>$(id).value="");
   $("d_hour").value = nowHour();
   toast("Diameter reading added · "+bid); loadAll();
 }
@@ -265,7 +376,7 @@ function renderTrans(rows){
     const div = document.createElement("div"); div.className="row";
     div.innerHTML = `<div class="info">${esc(r.time)} · ${esc(r.from_color)} → <b>${esc(r.to_color)}</b><br>
       ${esc(r.batch_id)} · ${esc(r.spools)} spools / ${esc(r.weight_kg)} kg<br>
-      <small>${esc(r.operator)} ${esc(r.notes)?"· "+esc(r.notes):""}</small></div>`;
+      <small>${esc(r.operator)?esc(r.operator)+" · ":""}${esc(r.notes)?esc(r.notes):""}</small></div>`;
     const wrap = document.createElement("div"); wrap.style.display="flex"; wrap.style.gap="6px";
     const ed = document.createElement("button"); ed.className="del"; ed.textContent="✎"; ed.style.color="var(--accent2)";
     ed.onclick = ()=>{
@@ -274,9 +385,9 @@ function renderTrans(rows){
       $("t_line").value = r.line||"";
       $("t_from").value = r.from_color||"";
       $("t_to").value = r.to_color||"";
+      $("t_op").value = r.operator||"";
       $("t_sp").value = r.spools??"";
       $("t_wt").value = r.weight_kg??"";
-      $("t_op").value = r.operator||"";
       $("t_notes").value = r.notes||"";
       refreshBids();
       toast("Editing — tap Add to save");
@@ -355,6 +466,7 @@ async function refreshSummary(){
     <div class="status ${pass?"pass":"review"}">${esc(s.qc_status)}</div>
     <div class="row2"><span>Date</span><span>${esc(s.date)}</span></div>
     <div class="row2"><span>Line</span><span>${esc(s.line)}</span></div>
+    <div class="row2"><span>Planned Colors</span><span>${esc(s.planned_colors)||"—"}</span></div>
     <div class="row2"><span>Batch IDs</span><span>${esc(s.batch_ids)||"—"}</span></div>
     <div class="row2"><span>Total Target (kg)</span><span>${s.total_target}</span></div>
     <div class="row2"><span>Total Actual (kg)</span><span>${s.total_actual}</span></div>
@@ -372,6 +484,7 @@ function copyWeekly(){
   const txt =
 `LYNX AM — Daily Production Log ${s.date}
 Line: ${s.line}
+Planned Colors: ${s.planned_colors||"—"}
 Batch IDs: ${s.batch_ids||"—"}
 Total actual: ${s.total_actual} kg | Est. spools: ${s.est_spools}
 Weight checks: ${s.weight_checks} (${s.weight_oos} out of spec)
@@ -381,15 +494,11 @@ QC: ${s.qc_status}`;
   navigator.clipboard.writeText(txt).then(()=>toast("Copied for weekly report"));
 }
 
-// ---- prefill clock on tab open ----
-["weight","dia","trans"].forEach(tab=>{
-  // handled by setNow buttons + auto hour; nothing extra needed
-});
-
 // ---- bootstrap ----
 (async ()=>{
   await loadCatalog();
-  // prefill hour fields with current hour
+  const sh = await getJSON("/api/shifts"); SHIFTS = sh.shifts || [];
+  await loadOperators();
   if ($("w_hour")) $("w_hour").value = nowHour();
   if ($("d_hour")) $("d_hour").value = nowHour();
   loadAll();

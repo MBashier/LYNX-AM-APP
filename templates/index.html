@@ -36,28 +36,43 @@
       <label>Weight Tol ±(kg)<input id="s_wt" type="number" step="0.001" value="0.02"></label>
       <label>Target Dia (mm)<input id="s_td" type="number" step="0.01" value="1.75"></label>
       <label>Dia Tol ±(mm)<input id="s_dt" type="number" step="0.001" value="0.05"></label>
+      <label>Spools / hr<input id="s_sph" type="number" step="1" value="10"></label>
       <label class="full">Batch IDs covered<input id="s_bid" placeholder="LYNX-PLA-WHT-217, LYNX-PLA-WHT-218"></label>
     </div>
+
+    <h3>Planned Colors (this run / day)</h3>
+    <p class="hint">Pick every color you will run today — they appear as quick buttons on Production.</p>
+    <select id="s_plan" multiple class="multi"></select>
+
     <div class="batchpreview">Auto batch ID format: <code id="bidPreview">—</code>
       <small>(material-color-DDMMYY)</small></div>
     <button class="primary big" id="saveSetup">Save Setup</button>
+
+    <h3>Operators</h3>
+    <div class="grid2">
+      <label>Add Operator<input id="op_name" placeholder="e.g. Ahmed"></label>
+      <button class="primary" onclick="addOperator()">+ Add</button>
+    </div>
+    <div id="opList" class="list"></div>
   </section>
 
   <!-- PRODUCTION -->
   <section id="tab-prod" class="tab">
-    <h2>Production Log (per half-shift)</h2>
+    <h2>Production Log</h2>
+    <div class="plan" id="planBox"></div>
     <div class="grid2">
-      <label>Shift<input id="p_shift" placeholder="Shift 1"></label>
-      <label>Block / Time<input id="p_block" placeholder="06:00–10:00"></label>
+      <label>Shift<input id="p_shift" placeholder="S1"></label>
+      <button type="button" class="now" onclick="setNow('p_block')">⏱ Now (shift + block + target)</button>
+      <label>Block / Time<input id="p_block" placeholder="08:30–12:30"></label>
       <label>Material<select id="p_mat"></select></label>
       <label>Color<select id="p_color"></select></label>
       <label>Auto Batch ID<code id="p_bid" class="auto">—</code></label>
-      <button type="button" class="now" onclick="setNow('p_block')">⏱ Now</button>
       <label>Target kg<input id="p_tgt" type="number" step="0.1"></label>
       <label>Actual kg<input id="p_act" type="number" step="0.1"></label>
-      <label>Operator<input id="p_op"></label>
+      <label>Operator<select id="p_op"></select></label>
       <label>Notes<input id="p_notes"></label>
     </div>
+    <div id="planChips" class="chips"></div>
     <button class="primary big" onclick="addBlock()">Add Block</button>
     <div id="prodList" class="list"></div>
   </section>
@@ -72,6 +87,7 @@
       <label>Time<input id="w_time" type="time"></label>
       <label>Color<select id="w_color"></select></label>
       <label>Auto Batch ID<code id="w_bid" class="auto">—</code></label>
+      <label>Operator<select id="w_op"></select></label>
       <label>Reading (kg)<input id="w_read" type="number" step="0.001" placeholder="1.000"></label>
     </div>
     <button class="primary big" onclick="addWeight()">Add Reading</button>
@@ -88,6 +104,7 @@
       <label>Time<input id="d_time" type="time"></label>
       <label>Color<select id="d_color"></select></label>
       <label>Auto Batch ID<code id="d_bid" class="auto">—</code></label>
+      <label>Operator<select id="d_op"></select></label>
       <label>Reading (mm)<input id="d_read" type="number" step="0.001" placeholder="1.750"></label>
     </div>
     <button class="primary big" onclick="addDiameter()">Add Reading</button>
@@ -106,7 +123,7 @@
       <label>Auto Batch ID<code id="t_bid" class="auto">—</code></label>
       <label>Transition Spools<input id="t_sp" type="number"></label>
       <label>Transition Wt (kg)<input id="t_wt" type="number" step="0.1"></label>
-      <label>Operator<input id="t_op"></label>
+      <label>Operator<select id="t_op"></select></label>
       <label class="full">Notes<input id="t_notes"></label>
     </div>
     <button class="primary big" onclick="addTransition()">Add Transition</button>
