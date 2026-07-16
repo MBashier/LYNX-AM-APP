@@ -65,9 +65,11 @@
   <!-- WEIGHT -->
   <section id="tab-weight" class="tab">
     <h2>Hourly Spool Weight (1 random spool/hr)</h2>
+    <div class="target-hint" id="w_target_hint"></div>
     <div class="grid2">
       <label>Hour<input id="w_hour" type="number" min="1" max="24"></label>
       <button type="button" class="now" onclick="setNow('w_time')">⏱ Now</button>
+      <label>Time<input id="w_time" type="time"></label>
       <label>Color<select id="w_color"></select></label>
       <label>Auto Batch ID<code id="w_bid" class="auto">—</code></label>
       <label>Reading (kg)<input id="w_read" type="number" step="0.001" placeholder="1.000"></label>
@@ -79,9 +81,11 @@
   <!-- DIAMETER -->
   <section id="tab-dia" class="tab">
     <h2>Hourly Diameter (1 random spool/hr)</h2>
+    <div class="target-hint" id="d_target_hint"></div>
     <div class="grid2">
       <label>Hour<input id="d_hour" type="number" min="1" max="24"></label>
       <button type="button" class="now" onclick="setNow('d_time')">⏱ Now</button>
+      <label>Time<input id="d_time" type="time"></label>
       <label>Color<select id="d_color"></select></label>
       <label>Auto Batch ID<code id="d_bid" class="auto">—</code></label>
       <label>Reading (mm)<input id="d_read" type="number" step="0.001" placeholder="1.750"></label>

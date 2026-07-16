@@ -42,8 +42,17 @@ function nowHour(){
   return new Date().getHours();
 }
 function setNow(field){
-  if (field === "p_block"){ $("p_block").value = nowHour() + ":00-" + ((nowHour()+4)%24) + ":00"; }
-  else { $(field).value = nowTime(); }
+  const el = $(field); if (!el) return;
+  if (field === "p_block"){ el.value = nowHour() + ":00-" + ((nowHour()+4)%24) + ":00"; }
+  else { el.value = nowTime(); }
+}
+function refreshTargets(){
+  const tw = ($("s_tw").value || "1"), wt = ($("s_wt").value || "0.02");
+  const td = ($("s_td").value || "1.75"), dt = ($("s_dt").value || "0.05");
+  const wh = $("w_target_hint"); if (wh) wh.textContent = `Target: ${tw} kg ± ${wt}  ·  spec ${td} mm ± ${dt}`;
+  const dh = $("d_target_hint"); if (dh) dh.textContent = `Target: ${td} mm ± ${dt}  ·  spec ${tw} kg ± ${wt}`;
+  // prefill Production target from setup if empty
+  if ($("p_tgt") && !$("p_tgt").value) $("p_tgt").value = tw;
 }
 function codeFor(arr, name){ const m = arr.find(x=>x.name===name); return m ? m.code : (name||"").toLowerCase().slice(0,3); }
 function buildBid(material, color){
@@ -77,6 +86,7 @@ function fillSelect(id, items, selected){
 async function loadAll(){
   const d = await getJSON(`/api/day/${curDate}`);
   $("s_line").value = d.line || "GS Mach Line 1";
+  fillSelect("s_mat", CAT.materials, d.material_default || "PLA+");
   $("s_mat").value = d.material_default || "PLA+";
   $("s_tw").value = d.target_weight ?? 1;
   $("s_wt").value = d.weight_tol ?? 0.02;
@@ -90,6 +100,7 @@ async function loadAll(){
   fillSelect("d_color", CAT.colors, "");
   fillSelect("t_from", CAT.colors, "");
   fillSelect("t_to", CAT.colors, "");
+  refreshTargets();
   if (d.blocks) renderBlocks(d.blocks); else renderBlocks([]);
   if (d.weights) renderWeights(d.weights); else renderWeights([]);
   if (d.diameters) renderDiameters(d.diameters); else renderDiameters([]);

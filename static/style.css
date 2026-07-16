@@ -54,3 +54,4 @@ label.full{grid-column:1/-1}
 .auto{display:inline-block;background:var(--bg);padding:4px 10px;border-radius:8px;color:var(--accent2);font-weight:700;font-size:14px}
 button.now{background:var(--panel2);border:1px solid var(--line);color:var(--accent2);border-radius:10px;padding:10px;font-weight:700;font-size:14px;cursor:pointer}
 select{width:100%;background:var(--panel2);border:1px solid var(--line);color:var(--ink);border-radius:10px;padding:12px;font-size:16px;margin-top:6px}
+.target-hint{background:rgba(54,197,240,.08);border:1px solid var(--line);border-radius:10px;padding:8px 12px;margin:8px 0;font-size:13px;color:var(--accent2)}
