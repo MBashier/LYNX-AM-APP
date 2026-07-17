@@ -2,13 +2,13 @@
 #
 # Deploy steps (no CLI needed — done in the Render dashboard):
 # 1. Push this folder to a GitHub repo.
-# 2. https://dashboard.render.com → New → Web Service → connect that repo.
+# 2. https://dashboard.render.com -> New -> Web Service -> connect that repo.
 # 3. Render reads this file automatically (or set manually):
 #      Build command:  pip install -r requirements.txt
 #      Start command: gunicorn app:app --bind 0.0.0.0:$PORT
 # 4. Free plan: the service sleeps when idle; first load after idle takes ~30s.
-# 5. Data persists in the service's local disk (lost only on rebuild) —
-#    export CSVs regularly, or upgrade to a paid plan with a persistent disk.
+# 5. Data lives in ./data (lost only on rebuild) — export CSVs regularly,
+#    or upgrade to a paid plan with a persistent disk.
 
 services:
   - type: web
