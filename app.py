@@ -13,7 +13,7 @@ app.config["MAX_CONTENT_LENGTH"] = 5 * 1024 * 1024
 DEFAULTS = dict(
     line="GS Mach Line 1", material_default="PLA+",
     target_weight=1.0, weight_tol=0.02, target_dia=1.75, dia_tol=0.05,
-    spools_per_hr=10,
+    kg_per_hr=10,
 )
 # 3-shift model (24h coverage, 8h each)
 SHIFTS = [
@@ -37,7 +37,13 @@ def init_db():
       date TEXT UNIQUE NOT NULL,
       line TEXT, material_default TEXT,
       target_weight REAL, weight_tol REAL, target_dia REAL, dia_tol REAL,
-      spools_per_hr REAL, planned_colors TEXT, batch_ids TEXT, created_at TEXT
+      spools_per_hr REAL, kg_per_hr REAL, planned_colors TEXT, batch_ids TEXT, created_at TEXT
+    );
+    CREATE TABLE IF NOT EXISTS plan_sched(
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      week_start TEXT, day TEXT, day_index INTEGER,
+      seq INTEGER, material TEXT, color TEXT, chunk_kg REAL,
+      start_ts TEXT, end_ts TEXT, batch_id TEXT, day_id INTEGER DEFAULT NULL
     );
     CREATE TABLE IF NOT EXISTS shifts(
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -88,6 +94,8 @@ def migrate():
     cols = [r[1] for r in c.execute("PRAGMA table_info(days)")]
     if "spools_per_hr" not in cols:
         c.execute("ALTER TABLE days ADD COLUMN spools_per_hr REAL DEFAULT 10")
+    if "kg_per_hr" not in cols:
+        c.execute("ALTER TABLE days ADD COLUMN kg_per_hr REAL DEFAULT 10")
     if "planned_colors" not in cols:
         c.execute("ALTER TABLE days ADD COLUMN planned_colors TEXT DEFAULT ''")
     for tbl in ("weight_logs", "diameter_logs"):
@@ -278,6 +286,93 @@ def delete_plan(rid):
     conn.commit(); conn.close()
     return jsonify(ok=True)
 
+# ---- production scheduling (sequential, rate = kg/hr) ----
+PLAN_DAYS = ["Sun","Mon","Tue","Wed","Thu"]  # production week Sun->Thu
+
+def _add_days(dstr, n):
+    y,m,dd = map(int, dstr.split("-"))
+    return date(y,m,dd).toordinal() + n
+
+def _plan_sched_rows(week_start, rate):
+    """Return list of chunk dicts scheduled sequentially from week_start 08:30 at `rate` kg/hr."""
+    conn = db(); c = conn.cursor()
+    plans = [dict(r) for r in c.execute("SELECT * FROM plans ORDER BY id")]
+    conn.close()
+    chunks = []
+    # cursor in minutes from week_start 08:30
+    cur = 8*60 + 30  # 08:30
+    day_idx = 0
+    seq = 0
+    for p in plans:
+        mat, col, qty = p["material"], p["color"], (p.get("qty_kg") or 0)
+        remaining = qty
+        while remaining > 1e-9:
+            # capacity left in current day (day_idx), from cur to 24:00
+            day_end = 24*60
+            avail_min = day_end - cur
+            if avail_min <= 0:
+                # move to next day 00:00
+                day_idx += 1
+                cur = 0
+                continue
+            cap_kg = avail_min/60.0 * rate
+            chunk_kg = min(remaining, cap_kg)
+            chunk_min = (chunk_kg/rate)*60.0
+            start_min = cur
+            end_min = cur + chunk_min
+            # if chunk crosses midnight, clamp to end of day and continue next day
+            if end_min > day_end:
+                end_min = day_end
+                chunk_kg = (end_min - start_min)/60.0 * rate
+            d_offset = _add_days(week_start, day_idx)
+            d_obj = date.fromordinal(d_offset)
+            day_str = d_obj.isoformat()
+            start_min = int(round(cur))
+            sh, sm = divmod(start_min, 60)
+            eh, em = divmod(int(round(end_min)), 60)
+            day_lbl = d_obj.strftime("%a %d-%m")
+            start_ts = f"{day_lbl} {sh:02d}:{sm:02d}"
+            end_ts   = f"{day_lbl} {eh:02d}:{em:02d}"
+            bid = batch_id(mat, col, day_str)
+            chunks.append(dict(week_start=week_start, day=day_str, day_index=day_idx,
+                              seq=seq, material=mat, color=col, chunk_kg=round(chunk_kg,2),
+                              start_ts=start_ts, end_ts=end_ts, batch_id=bid))
+            seq += 1
+            remaining -= chunk_kg
+            cur = end_min
+            if cur >= day_end - 1e-6:
+                day_idx += 1
+                cur = 0
+    return chunks
+
+@app.route("/api/plan/generate", methods=["POST"])
+def plan_generate():
+    p = request.json
+    week_start = (p.get("week_start") or "").strip()
+    rate = d_or_null(p.get("rate")) or 10.0
+    if not week_start:
+        return jsonify(ok=False, error="Select a week start (Sunday)"), 400
+    chunks = _plan_sched_rows(week_start, rate)
+    # clear old schedule for this week and store
+    conn = db(); c = conn.cursor()
+    c.execute("DELETE FROM plan_sched WHERE week_start=?", (week_start,))
+    for ch in chunks:
+        c.execute("INSERT INTO plan_sched(week_start,day,day_index,seq,material,color,chunk_kg,start_ts,end_ts,batch_id) VALUES(?,?,?,?,?,?,?,?,?,?)",
+                  (ch["week_start"], ch["day"], ch["day_index"], ch["seq"], ch["material"], ch["color"], ch["chunk_kg"], ch["start_ts"], ch["end_ts"], ch["batch_id"]))
+    conn.commit(); conn.close()
+    return jsonify(ok=True, chunks=chunks)
+
+@app.route("/api/plan/schedule")
+def plan_schedule():
+    ws = request.args.get("week")
+    conn = db(); c = conn.cursor()
+    if ws:
+        rows = [dict(r) for r in c.execute("SELECT * FROM plan_sched WHERE week_start=? ORDER BY seq", (ws,))]
+    else:
+        rows = [dict(r) for r in c.execute("SELECT * FROM plan_sched ORDER BY week_start, seq")]
+    conn.close()
+    return jsonify(schedule=rows)
+
 @app.route("/api/day/<d>", methods=["GET"])
 def get_day(d):
     conn = db(); c = conn.cursor()
@@ -309,17 +404,18 @@ def upsert_day():
         weight_tol=d_or_null(p.get("weight_tol", DEFAULTS["weight_tol"])),
         target_dia=d_or_null(p.get("target_dia", DEFAULTS["target_dia"])),
         dia_tol=d_or_null(p.get("dia_tol", DEFAULTS["dia_tol"])),
-        spools_per_hr=d_or_null(p.get("spools_per_hr", DEFAULTS["spools_per_hr"])),
+        spools_per_hr=d_or_null(p.get("spools_per_hr", DEFAULTS["kg_per_hr"])),
+        kg_per_hr=d_or_null(p.get("kg_per_hr", DEFAULTS["kg_per_hr"])),
         planned_colors=p.get("planned_colors", ""),
         batch_ids=p.get("batch_ids", ""),
     )
     if row:
-        c.execute("UPDATE days SET line=?,material_default=?,target_weight=?,weight_tol=?,target_dia=?,dia_tol=?,spools_per_hr=?,planned_colors=?,batch_ids=? WHERE date=?",
-                  (fields["line"], fields["material_default"], fields["target_weight"], fields["weight_tol"], fields["target_dia"], fields["dia_tol"], fields["spools_per_hr"], fields["planned_colors"], fields["batch_ids"], d))
+        c.execute("UPDATE days SET line=?,material_default=?,target_weight=?,weight_tol=?,target_dia=?,dia_tol=?,spools_per_hr=?,kg_per_hr=?,planned_colors=?,batch_ids=? WHERE date=?",
+                  (fields["line"], fields["material_default"], fields["target_weight"], fields["weight_tol"], fields["target_dia"], fields["dia_tol"], fields["spools_per_hr"], fields["kg_per_hr"], fields["planned_colors"], fields["batch_ids"], d))
         day_id = row["id"]
     else:
-        c.execute("INSERT INTO days(date,line,material_default,target_weight,weight_tol,target_dia,dia_tol,spools_per_hr,planned_colors,batch_ids,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
-                  (d, fields["line"], fields["material_default"], fields["target_weight"], fields["weight_tol"], fields["target_dia"], fields["dia_tol"], fields["spools_per_hr"], fields["planned_colors"], fields["batch_ids"], datetime.now().isoformat()))
+        c.execute("INSERT INTO days(date,line,material_default,target_weight,weight_tol,target_dia,dia_tol,spools_per_hr,kg_per_hr,planned_colors,batch_ids,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+                  (d, fields["line"], fields["material_default"], fields["target_weight"], fields["weight_tol"], fields["target_dia"], fields["dia_tol"], fields["spools_per_hr"], fields["kg_per_hr"], fields["planned_colors"], fields["batch_ids"], datetime.now().isoformat()))
         day_id = c.lastrowid
     conn.commit(); conn.close()
     return jsonify(day_id=day_id)

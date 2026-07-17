@@ -37,7 +37,8 @@
       <label>Weight Tol ±(kg)<input id="s_wt" type="number" step="0.001" value="0.02"></label>
       <label>Target Dia (mm)<input id="s_td" type="number" step="0.01" value="1.75"></label>
       <label>Dia Tol ±(mm)<input id="s_dt" type="number" step="0.001" value="0.05"></label>
-      <label>Spools / hr<input id="s_sph" type="number" step="1" value="10"></label>
+      <label>Spools / hr<input id="s_sph" type="number" step="1" value="10" disabled title="kept for compatibility"></label>
+      <label>Production Rate (kg/hr)<input id="s_rate" type="number" step="0.1" value="10"></label>
       <label class="full">Batch IDs covered<input id="s_bid" placeholder="LYNX-PLA-WHT-217, LYNX-PLA-WHT-218"></label>
     </div>
 
@@ -129,8 +130,12 @@
 
   <!-- PLAN -->
   <section id="tab-plan" class="tab">
-    <h2>Production Plan (Sun → Thu, 5 days)</h2>
-    <p class="hint">Production rate = Spools/hr (Setup) × Target spool weight. Each line is spread evenly across the 5 days; if a day's load exceeds the available capacity (rate × 24h × 3 shifts) it's flagged.</p>
+    <h2>Production Plan</h2>
+    <p class="hint">Pick the week start (a Sunday). Lines run <b>one after another</b> from Sun 08:30 at the Production Rate (kg/hr from Setup). The week is Sun→Thu (5 days). Each chunk gets its own auto Batch ID.</p>
+    <div class="grid2">
+      <label>Week starts (Sun)<input id="pl_week" type="date"></label>
+      <button class="primary" onclick="applyThisSunday()">This Sunday</button>
+    </div>
     <div class="grid2">
       <label>Material<select id="pl_mat"></select></label>
       <label>Color<select id="pl_color"></select></label>
@@ -138,7 +143,10 @@
       <button class="primary" onclick="addPlan()">+ Add Line</button>
     </div>
     <div id="planList" class="list"></div>
-    <h3>5-Day Distribution</h3>
+    <div class="actions" style="margin-top:8px">
+      <button class="primary big" onclick="generateSchedule()">⚙ Generate Schedule & Batch IDs</button>
+    </div>
+    <h3>Scheduled Production (Sun→Thu)</h3>
     <div id="planBoard" class="board"></div>
   </section>
 

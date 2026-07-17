@@ -74,3 +74,5 @@ select{width:100%;background:var(--panel2);border:1px solid var(--line);color:va
 .pl-kg{font-weight:800;font-size:15px;margin:2px 0}
 .pl-sub{font-size:11px;color:var(--muted)}
 .pl-warn{color:var(--bad);font-size:12px;font-weight:700;margin-top:6px}
+.pl-total{background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:10px;font-weight:600;margin-bottom:6px}
+.pl-total.over{border-color:var(--bad);background:rgba(248,81,73,.12);color:var(--bad)}
