@@ -76,3 +76,8 @@ select{width:100%;background:var(--panel2);border:1px solid var(--line);color:va
 .pl-warn{color:var(--bad);font-size:12px;font-weight:700;margin-top:6px}
 .pl-total{background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:10px;font-weight:600;margin-bottom:6px}
 .pl-total.over{border-color:var(--bad);background:rgba(248,81,73,.12);color:var(--bad)}
+.pl-go{margin-top:8px;width:100%;background:var(--accent);color:#06222b;border:none;border-radius:8px;padding:7px 0;font-weight:700;font-size:12px;cursor:pointer}
+.pl-go:active{background:var(--accent2)}
+.actions{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin:10px 0}
+.btn{background:var(--panel2);border:1px solid var(--line);color:var(--accent2);border-radius:8px;padding:9px 14px;font-weight:700;font-size:13px;cursor:pointer;text-decoration:none;display:inline-block}
+.btn:active{background:var(--accent)}

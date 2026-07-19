@@ -34,6 +34,7 @@ document.querySelectorAll("#tabs button").forEach(b=>{
     $("tab-"+b.dataset.tab).classList.add("active");
     if (b.dataset.tab === "catalog") renderCatalog();
     if (b.dataset.tab === "plan") loadPlans();
+    if (b.dataset.tab === "weekly") loadWeekly();
   };
 });
 
@@ -226,6 +227,9 @@ function renderPlanBoard(rows){
     byDay[day].forEach(r=>{
       const cell = document.createElement("div"); cell.className="pl-cell";
       cell.innerHTML = `<div class="pl-day">${esc(r.start_ts)}</div><div class="pl-kg">${esc(r.chunk_kg)} kg</div><div class="pl-sub">→ ${esc(r.end_ts)}<br>${esc(r.material)} · ${esc(r.color)}<br><b>${esc(r.batch_id)}</b></div>`;
+      const btn = document.createElement("button"); btn.className="pl-go"; btn.textContent="→ Production";
+      btn.onclick = (e)=>{ e.stopPropagation(); jumpToBlock(r); };
+      cell.appendChild(btn);
       cell.onclick = ()=>{ jumpToBlock(r); };
       grid.appendChild(cell);
     });
@@ -243,9 +247,12 @@ function jumpToBlock(r){
   const b = Array.from(document.querySelectorAll("#tabs button")).find(x=>x.dataset.tab==="prod");
   if(b) b.classList.add("active");
   $("tab-prod").classList.add("active");
-  $("p_mat").value = r.material; $("p_color").value = r.color;
+  // set material/color by name (best-effort; fall back to first option)
+  $("p_mat").value = r.material;
+  $("p_color").value = r.color;
   $("p_bid").textContent = r.batch_id;
-  $("p_shift").value = ""; $("p_block").value = r.start_ts + " → " + r.end_ts;
+  $("p_shift").value = "";
+  $("p_block").value = r.start_ts.split(" ")[1] + " → " + r.end_ts.split(" ")[1];
   $("p_tgt").value = r.chunk_kg;
   refreshBids();
   toast("Loaded block into Production — fill actuals");
@@ -539,6 +546,55 @@ async function saveColor(){
   $("c_name").value=""; $("c_code").value="";
   await loadCatalog();
   renderCatalog(); toast("Color saved");
+}
+
+// ---- weekly rollup ----
+function applyWeeklySunday(){
+  const today = new Date();
+  const day = today.getDay();
+  const diff = (7 - day) % 7;
+  const d = new Date(today); d.setDate(today.getDate() + diff);
+  $("wk_week").value = d.toISOString().slice(0,10);
+  toast("Week start set: " + $("wk_week").value);
+}
+async function loadWeekly(){
+  const ws = $("wk_week").value;
+  if(!ws){ toast("Pick a week start (Sunday) first"); return; }
+  const r = await getJSON(`/api/weekly/${ws}`);
+  window._lastWeekly = r;
+  const t = r.totals || {};
+  const rows = (r.days||[]).map(s=>`
+    <div class="row2"><span>${esc(s.date)}</span><span>${s.total_actual} kg · ${s.est_spools} sp · ${esc(s.qc_status.split(' ')[0])}</span></div>`).join("");
+  const pass = (r.qc_status||"").startsWith("PASS");
+  $("weeklyBox").innerHTML = `
+    <div class="status ${pass?'pass':'review'}">${esc(r.qc_status)}</div>
+    <div class="row2"><span>Week</span><span>${esc(r.week_start)} (Sun→Thu)</span></div>
+    <div class="row2"><span>Planned</span><span>${r.planned_kg} kg</span></div>
+    <div class="row2"><span>Actual total</span><span>${t.total_actual} kg</span></div>
+    <div class="row2"><span>Variance vs target</span><span>${t.variance} kg</span></div>
+    <div class="row2"><span>Planned vs actual</span><span>${r.planned_vs_actual} kg</span></div>
+    <div class="row2"><span>Est. spools</span><span>${t.est_spools}</span></div>
+    <div class="row2"><span>Weight checks</span><span>${t.weight_checks} (${t.weight_oos} OUT)</span></div>
+    <div class="row2"><span>Diameter checks</span><span>${t.diameter_checks} (${t.diameter_oos} OUT)</span></div>
+    <div class="row2"><span>Transition loss</span><span>${t.transition_spools} sp / ${t.transition_weight} kg</span></div>
+    <h3>Per day</h3>
+    ${rows}`;
+  toast("Weekly rollup loaded");
+}
+function copyWeeklyRollup(){
+  const r = window._lastWeekly; if(!r) return;
+  const t = r.totals || {};
+  const lines = (r.days||[]).map(s=>`${s.date}: ${s.total_actual} kg, ${s.est_spools} sp, ${s.qc_status}`).join("\n");
+  const txt =
+`LYNX AM — Weekly Production Rollup ${r.week_start} (Sun→Thu)
+QC: ${r.qc_status}
+Planned: ${r.planned_kg} kg | Actual: ${t.total_actual} kg | Variance: ${t.variance} kg
+Planned vs Actual: ${r.planned_vs_actual} kg | Est. spools: ${t.est_spools}
+Weight checks: ${t.weight_checks} (${t.weight_oos} out) | Diameter: ${t.diameter_checks} (${t.diameter_oos} out)
+Transition loss: ${t.transition_spools} sp / ${t.transition_weight} kg
+--- Per day ---
+${lines}`;
+  navigator.clipboard.writeText(txt).then(()=>toast("Copied weekly report"));
 }
 
 // ---- summary ----

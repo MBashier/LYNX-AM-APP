@@ -404,7 +404,7 @@ def upsert_day():
         weight_tol=d_or_null(p.get("weight_tol", DEFAULTS["weight_tol"])),
         target_dia=d_or_null(p.get("target_dia", DEFAULTS["target_dia"])),
         dia_tol=d_or_null(p.get("dia_tol", DEFAULTS["dia_tol"])),
-        spools_per_hr=d_or_null(p.get("spools_per_hr", DEFAULTS["kg_per_hr"])),
+        spools_per_hr=d_or_null(p.get("spools_per_hr", 10)),
         kg_per_hr=d_or_null(p.get("kg_per_hr", DEFAULTS["kg_per_hr"])),
         planned_colors=p.get("planned_colors", ""),
         batch_ids=p.get("batch_ids", ""),
@@ -492,12 +492,11 @@ def _day_id(c, d):
     c.execute("SELECT id FROM days WHERE date=?", (d,))
     row = c.fetchone()
     if row: return row["id"]
-    c.execute("INSERT INTO days(date,line,material_default,target_weight,weight_tol,target_dia,dia_tol,spools_per_hr,planned_colors,batch_ids,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
-              (d, DEFAULTS["line"], DEFAULTS["material_default"], DEFAULTS["target_weight"], DEFAULTS["weight_tol"], DEFAULTS["target_dia"], DEFAULTS["dia_tol"], DEFAULTS["spools_per_hr"], "", "", datetime.now().isoformat()))
+    c.execute("INSERT INTO days(date,line,material_default,target_weight,weight_tol,target_dia,dia_tol,spools_per_hr,kg_per_hr,planned_colors,batch_ids,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+              (d, DEFAULTS["line"], DEFAULTS["material_default"], DEFAULTS["target_weight"], DEFAULTS["weight_tol"], DEFAULTS["target_dia"], DEFAULTS["dia_tol"], 10, DEFAULTS["kg_per_hr"], "", "", datetime.now().isoformat()))
     return c.lastrowid
 
-@app.route("/api/summary/<d>")
-def summary(d):
+def _day_summary_dict(d):
     conn = db(); c = conn.cursor()
     c.execute("SELECT * FROM days WHERE date=?", (d,))
     day = c.fetchone()
@@ -524,7 +523,7 @@ def summary(d):
     t_spools = sum((t["spools"] or 0) for t in trans)
     t_w = sum((t["weight_kg"] or 0) for t in trans)
     status = "PASS - customer-ready" if (w_oos == 0 and d_oos == 0) else "REVIEW - OUT OF SPEC found"
-    return jsonify(dict(
+    return dict(
         date=d, line=day.get("line"), material_default=day.get("material_default"),
         planned_colors=day.get("planned_colors", ""),
         batch_ids=day.get("batch_ids", ""),
@@ -535,7 +534,50 @@ def summary(d):
         transition_spools=t_spools, transition_weight=round(t_w, 2),
         qc_status=status,
         target_weight=tgt_w, weight_tol=wt_tol, target_dia=tgt_d, dia_tol=d_tol,
-    ))
+    )
+
+@app.route("/api/summary/<d>")
+def summary(d):
+    return jsonify(_day_summary_dict(d))
+
+@app.route("/api/weekly/<week_start>")
+def weekly(week_start):
+    # aggregate the 5 production days (Sun -> Thu)
+    conn = db(); c = conn.cursor()
+    days = []
+    tot = dict(total_target=0.0, total_actual=0.0, est_spools=0,
+               weight_checks=0, weight_oos=0, diameter_checks=0, diameter_oos=0,
+               transition_spools=0, transition_weight=0.0)
+    for i in range(5):
+        d = date.fromordinal(_add_days(week_start, i)).isoformat()
+        s = _day_summary_dict(d)
+        days.append(s)
+        tot["total_target"]   += s["total_target"]
+        tot["total_actual"]   += s["total_actual"]
+        tot["est_spools"]     += s["est_spools"]
+        tot["weight_checks"]  += s["weight_checks"]
+        tot["weight_oos"]     += s["weight_oos"]
+        tot["diameter_checks"]+= s["diameter_checks"]
+        tot["diameter_oos"]   += s["diameter_oos"]
+        tot["transition_spools"]+= s["transition_spools"]
+        tot["transition_weight"]+= s["transition_weight"]
+    # planned production for the week (from schedule)
+    plan = [dict(r) for r in c.execute("SELECT * FROM plan_sched WHERE week_start=? ORDER BY seq", (week_start,))]
+    conn.close()
+    planned_kg = round(sum((p["chunk_kg"] or 0) for p in plan), 2)
+    any_oos = (tot["weight_oos"] > 0) or (tot["diameter_oos"] > 0)
+    qc = "PASS - customer-ready" if not any_oos else "REVIEW - OUT OF SPEC found"
+    return jsonify(week_start=week_start, days=days, totals=dict(
+        total_target=round(tot["total_target"], 2),
+        total_actual=round(tot["total_actual"], 2),
+        variance=round(tot["total_actual"] - tot["total_target"], 2),
+        est_spools=tot["est_spools"],
+        weight_checks=tot["weight_checks"], weight_oos=tot["weight_oos"],
+        diameter_checks=tot["diameter_checks"], diameter_oos=tot["diameter_oos"],
+        transition_spools=tot["transition_spools"],
+        transition_weight=round(tot["transition_weight"], 2),
+    ), planned_kg=planned_kg, planned_vs_actual=round(tot["total_actual"] - planned_kg, 2),
+       qc_status=qc)
 
 @app.route("/api/export/<d>")
 def export_csv(d):

@@ -22,6 +22,7 @@
   <button data-tab="dia">Diameter</button>
   <button data-tab="trans">Transitions</button>
   <button data-tab="plan">Plan</button>
+  <button data-tab="weekly">Weekly</button>
   <button data-tab="catalog">Catalog</button>
   <button data-tab="summary">Summary</button>
 </nav>
@@ -148,6 +149,20 @@
     </div>
     <h3>Scheduled Production (Sun→Thu)</h3>
     <div id="planBoard" class="board"></div>
+  </section>
+
+  <!-- WEEKLY -->
+  <section id="tab-weekly" class="tab">
+    <h2>Weekly Rollup (Sun → Thu)</h2>
+    <div class="grid2">
+      <label>Week starts (Sun)<input id="wk_week" type="date"></label>
+      <button class="primary" onclick="applyWeeklySunday()">This Sunday</button>
+    </div>
+    <div class="actions">
+      <button class="primary big" onclick="loadWeekly()">↻ Load Week</button>
+      <button class="btn" onclick="copyWeeklyRollup()">📋 Copy report</button>
+    </div>
+    <div id="weeklyBox" class="summary"></div>
   </section>
 
   <!-- CATALOG -->
